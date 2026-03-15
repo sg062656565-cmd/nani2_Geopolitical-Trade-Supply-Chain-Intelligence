@@ -21,6 +21,18 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleString('zh-TW'));
   const [isPolicyExpanded, setIsPolicyExpanded] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+
+  useEffect(() => {
+    const savedKey = localStorage.getItem('gemini_api_key');
+    if (savedKey) setApiKeyInput(savedKey);
+  }, []);
+
+  const handleSaveApiKey = () => {
+    localStorage.setItem('gemini_api_key', apiKeyInput);
+    setIsSettingsOpen(false);
+  };
 
   const TAIWAN_OFFICIAL_INFO = [
     { dimension: 'ART 協定背景', content: '2026/2/12 簽署，旨在應對美方第 122 條款及 IEEPA 違憲後的政策空窗期。' },
@@ -121,6 +133,13 @@ const App: React.FC = () => {
         </nav>
 
         <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-blue-400 transition-colors"
+            title="設定 API Key"
+          >
+            <Icons.Key className="w-5 h-5" />
+          </button>
           <div className="hidden sm:flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></div>
             <span className="text-[10px] text-slate-400 uppercase font-semibold">
@@ -444,6 +463,52 @@ const App: React.FC = () => {
           &copy; 2024 TradeViz Taiwan-US Strategic Dashboard
         </div>
       </footer>
+
+      {/* API Key Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-md glass-panel rounded-3xl p-8 border border-slate-700 shadow-2xl animate-in zoom-in duration-300">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-blue-600/20 p-2 rounded-lg">
+                <Icons.Key className="w-6 h-6 text-blue-400" />
+              </div>
+              <h2 className="text-xl font-bold">Gemini API 設定</h2>
+            </div>
+            
+            <div className="space-y-4">
+              <p className="text-sm text-slate-400">
+                請輸入您的 Gemini API Key 以啟用 AI 分析功能。金鑰將儲存於您的瀏覽器本地空間。
+              </p>
+              
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">API Key</label>
+                <input 
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="在此輸入 API Key..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button 
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-400 hover:bg-slate-800 transition-colors"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleSaveApiKey}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-900/20"
+                >
+                  儲存設定
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
