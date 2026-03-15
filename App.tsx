@@ -23,15 +23,42 @@ const App: React.FC = () => {
   const [isPolicyExpanded, setIsPolicyExpanded] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const [hasApiKey, setHasApiKey] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
-    if (savedKey) setApiKeyInput(savedKey);
+    if (savedKey) {
+      setApiKeyInput(savedKey);
+      setHasApiKey(true);
+      setIsSettingsOpen(false);
+    } else {
+      setHasApiKey(false);
+      setIsSettingsOpen(true);
+    }
   }, []);
 
-  const handleSaveApiKey = () => {
-    localStorage.setItem('gemini_api_key', apiKeyInput);
-    setIsSettingsOpen(false);
+  const handleSaveApiKey = async () => {
+    if (!apiKeyInput.trim()) return;
+    
+    setIsLoading(true);
+    setErrorMessage('');
+    try {
+      // Simple test call to validate the key
+      const ai = new (await import("@google/genai")).GoogleGenAI({ apiKey: apiKeyInput });
+      await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: 'test',
+      });
+      
+      localStorage.setItem('gemini_api_key', apiKeyInput);
+      setHasApiKey(true);
+      setIsSettingsOpen(false);
+    } catch (error) {
+      setErrorMessage('無效的 API Key，請檢查後重試。');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const TAIWAN_OFFICIAL_INFO = [
@@ -99,8 +126,10 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-slate-950 text-slate-100">
-      <header className="h-16 border-b border-slate-800 flex items-center justify-between px-8 glass-panel z-50">
+    <>
+      {/* Main Content */}
+      <div className={`min-h-screen w-full flex flex-col bg-slate-950 text-slate-100 transition-all duration-500 ${!hasApiKey ? 'blur-xl opacity-20 pointer-events-none select-none' : 'opacity-100'}`}>
+        <header className="h-16 border-b border-slate-800 flex items-center justify-between px-8 glass-panel z-50">
         <div className="flex items-center gap-3">
           <div className="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/20">
             <Icons.Global className="w-6 h-6 text-white" />
@@ -464,52 +493,72 @@ const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* API Key Modal */}
+      </div>
+
+      {/* API Key Modal - Outside the blurred container */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="w-full max-w-md glass-panel rounded-3xl p-8 border border-slate-700 shadow-2xl animate-in zoom-in duration-300">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-md glass-panel rounded-3xl p-8 border border-slate-700 shadow-2xl animate-in zoom-in duration-300 pointer-events-auto">
             <div className="flex items-center gap-3 mb-6">
               <div className="bg-blue-600/20 p-2 rounded-lg">
                 <Icons.Key className="w-6 h-6 text-blue-400" />
               </div>
-              <h2 className="text-xl font-bold">Gemini API 設定</h2>
+              <h2 className="text-xl font-bold">歡迎使用戰略圖誌</h2>
             </div>
             
             <div className="space-y-4">
-              <p className="text-sm text-slate-400">
-                請輸入您的 Gemini API Key 以啟用 AI 分析功能。金鑰將儲存於您的瀏覽器本地空間。
+              <p className="text-sm text-slate-300">
+                本系統需要 **Gemini API Key** 才能運作。請輸入您的金鑰以解鎖即時地緣政治分析功能。
               </p>
               
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">API Key</label>
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">API Key</label>
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-[10px] text-blue-400 hover:underline">獲取金鑰 →</a>
+                </div>
                 <input 
                   type="password"
                   value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  onChange={(e) => {
+                    setApiKeyInput(e.target.value);
+                    setErrorMessage('');
+                  }}
                   placeholder="在此輸入 API Key..."
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  className={`w-full bg-slate-900 border rounded-xl px-4 py-3 text-sm focus:outline-none transition-colors ${errorMessage ? 'border-red-500' : 'border-slate-700 focus:border-blue-500'}`}
                 />
+                {errorMessage && (
+                  <p className="text-[10px] text-red-500 font-bold">{errorMessage}</p>
+                )}
               </div>
 
               <div className="flex gap-3 pt-4">
-                <button 
-                  onClick={() => setIsSettingsOpen(false)}
-                  className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-400 hover:bg-slate-800 transition-colors"
-                >
-                  取消
-                </button>
+                {hasApiKey && (
+                  <button 
+                    onClick={() => setIsSettingsOpen(false)}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-400 hover:bg-slate-800 transition-colors"
+                  >
+                    取消
+                  </button>
+                )}
                 <button 
                   onClick={handleSaveApiKey}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-900/20"
+                  disabled={!apiKeyInput.trim()}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-900/20"
                 >
-                  儲存設定
+                  {hasApiKey ? '儲存設定' : '解鎖系統'}
                 </button>
               </div>
+              
+              {!hasApiKey && (
+                <p className="text-[10px] text-slate-500 text-center italic">
+                  * 金鑰將安全地儲存於您的瀏覽器本地空間 (localStorage)
+                </p>
+              )}
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
