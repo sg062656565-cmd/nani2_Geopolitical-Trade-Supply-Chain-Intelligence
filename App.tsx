@@ -1,12 +1,19 @@
-
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { AppStep, Industry } from './types';
 import { Icons, INDUSTRIES, TAIWAN_US_TIMELINE, TARIFF_IMPACT_DATA } from './constants';
 import { getGeopoliticalUpdate, getSupplyChainInsights, getFuturePrediction } from './services/geminiService';
 import GlobeVisualization from './components/GlobeVisualization';
 import SupplyChainMap from './components/SupplyChainMap';
 import LocalImpactMap from './components/LocalImpactMap';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
+// Utility for tailwind classes
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs)); 
+}
+  
 const script = document.createElement('script');
 script.src = "https://unpkg.com/topojson-client@3";
 document.head.appendChild(script);
@@ -25,6 +32,7 @@ const App: React.FC = () => {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [hasApiKey, setHasApiKey] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [showStageInfo, setShowStageInfo] = useState(false);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
@@ -44,11 +52,10 @@ const App: React.FC = () => {
     setIsLoading(true);
     setErrorMessage('');
     try {
-      // Simple test call to validate the key
       const ai = new (await import("@google/genai")).GoogleGenAI({ apiKey: apiKeyInput });
       await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: 'test',
+        model: 'gemini-1.5-flash',
+        contents: [{ role: 'user', parts: [{ text: 'test' }] }],
       });
       
       localStorage.setItem('gemini_api_key', apiKeyInput);
@@ -79,16 +86,30 @@ const App: React.FC = () => {
 
   const refreshGlobal = async () => {
     setIsLoading(true);
-    const data = await getGeopoliticalUpdate();
-    setGeoUpdate(data);
-    setIsLoading(false);
-  };
+    try {
+      const promises: Promise<any>[] = [
+        getGeopoliticalUpdate(),
+        getSupplyChainInsights(industry)
+      ];
+      
+      if (scenario) {
+        promises.push(getFuturePrediction(scenario));
+      }
 
-  const refreshSupplyChain = async (ind: Industry) => {
-    setIsLoading(true);
-    const data = await getSupplyChainInsights(ind);
-    setSupplyChainData(data);
-    setIsLoading(false);
+      const results = await Promise.all(promises);
+      
+      setGeoUpdate(results[0]);
+      setSupplyChainData(results[1]);
+      if (scenario) {
+        setPrediction(results[2]);
+      }
+
+      setCurrentTime(new Date().toLocaleString('zh-TW'));
+    } catch (err) {
+      console.error("Failed to refresh all data:", err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handlePredict = async () => {
@@ -99,27 +120,28 @@ const App: React.FC = () => {
     setIsLoading(false);
   };
 
-  const stepTitles = {
-    [AppStep.GLOBAL_VIEW]: '美國關稅政策下的全球視野',
-    [AppStep.SUPPLY_CHAIN]: '臺灣供應鏈轉移',
-    [AppStep.LOCAL_IMPACT]: '關稅協商下美國的衝擊',
-    [AppStep.PREDICTIVE_INSIGHT]: 'AI預測建議'
-  };
-
-  const STAGE_CONTEXTS = {
+  const stepInfo = {
     [AppStep.GLOBAL_VIEW]: {
+      title: '全球關稅牆',
+      icon: <Icons.Global className="w-5 h-5" />,
       how: '點擊「一鍵獲得美國最新官方資訊」按鈕，AI 將爬取 USTR 與最高法院裁定後的最新政策。',
       focus: '掌握 IEEPA 違憲後的法源轉向（第 122 條款）及全球貿易版圖的劇烈重構。'
     },
     [AppStep.SUPPLY_CHAIN]: {
+      title: '供應鏈轉移',
+      icon: <Icons.Truck className="w-5 h-5" />,
       how: '觀察地圖上的遷移路徑，分析「中國+1」模式下的洗產地風險與對美直接投資趨勢。',
       focus: '理解臺灣企業如何在 $2500 億投資承諾下，平衡全球佈局與本土「矽盾」安全。'
     },
     [AppStep.LOCAL_IMPACT]: {
+      title: '在地衝擊',
+      icon: <Icons.Map className="w-5 h-5" />,
       how: '點擊地圖上的區域，分析 10% 附加關稅對美國各州通膨與臺灣產業競爭力的實質影響。',
       focus: '剖析《臺美對等貿易協定》(ART) 簽署後，各產業在關稅減讓與市場開放間的損益。'
     },
     [AppStep.PREDICTIVE_INSIGHT]: {
+      title: '預測建議',
+      icon: <Icons.Zap className="w-5 h-5" />,
       how: '在輸入框中輸入假設情境，AI 將基於 ART 框架推論未來 5 年的地緣經貿走向。',
       focus: '預判未來 5 年臺美經貿深度綁定後的戰略風險，如資本外流與逆差持續擴大。'
     }
@@ -127,437 +149,508 @@ const App: React.FC = () => {
 
   return (
     <>
-      {/* Main Content */}
-      <div className={`min-h-screen w-full flex flex-col bg-slate-950 text-slate-100 transition-all duration-500 ${!hasApiKey ? 'blur-xl opacity-20 pointer-events-none select-none' : 'opacity-100'}`}>
-        <header className="h-16 border-b border-slate-800 flex items-center justify-between px-8 glass-panel z-50">
-        <div className="flex items-center gap-3">
-          <div className="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/20">
-            <Icons.Global className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">臺美貿易戰略圖誌</h1>
-              <span className="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded-full font-mono">
-                更新時間：{currentTime}
-              </span>
+      <div className={cn(
+        "min-h-screen w-full flex flex-col bg-[#020617] text-slate-100 transition-all duration-700",
+        !hasApiKey && "blur-2xl opacity-10 pointer-events-none select-none"
+      )}>
+        {/* Navigation - Top Header */}
+        <header className="fixed top-0 left-0 right-0 h-16 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl z-[60] flex items-center justify-between px-8">
+          <div className="flex items-center gap-4">
+            <div className="bg-blue-600/20 p-2 rounded-xl ring-1 ring-blue-500/30">
+              <Icons.Global className="w-6 h-6 text-blue-500" />
             </div>
-            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">REAL-TIME TAIWAN-US TRADE INTELLIGENCE</p>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight text-white">臺美貿易戰略圖誌</h1>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-blue-400/70 font-mono uppercase tracking-widest leading-none">Intelligence Hub</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+              </div>
+            </div>
           </div>
-        </div>
-        
-        <nav className="hidden lg:flex items-center gap-1 bg-slate-900/50 p-1 rounded-xl border border-slate-800">
-          {Object.values(AppStep).map((step, idx) => (
+
+          <div className="flex items-center gap-4">
+            <div className="hidden md:flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 rounded-lg border border-white/5">
+              <Icons.Activity className="w-4 h-4 text-slate-500" />
+              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest leading-none">{currentTime}</span>
+            </div>
+            
+            <button 
+              onClick={() => setShowStageInfo(true)}
+              className="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-amber-400 transition-all"
+              title="章節重點"
+            >
+              <Icons.Help className="w-5 h-5" />
+            </button>
+
+            <button 
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-blue-400 transition-all"
+              title="API 設定"
+            >
+              <Icons.Key className="w-5 h-5" />
+            </button>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <main className="flex-1 pt-16 pb-24 relative overflow-hidden flex flex-col">
+          <div className="flex-1 relative">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeStep}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.4 }}
+                className="w-full h-full"
+              >
+                {activeStep === AppStep.GLOBAL_VIEW && (
+                  <div className="w-full flex flex-col p-8 gap-10">
+                    <div className="flex flex-col lg:flex-row gap-10">
+                      <div className="flex-1 flex flex-col gap-6">
+                        <div className="relative h-[650px] glass-card border-none group bg-slate-900/40">
+                          <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/5 to-transparent pointer-events-none" />
+                          <GlobeVisualization active={activeStep === AppStep.GLOBAL_VIEW} />
+                          <div className="absolute top-8 left-8 max-w-sm space-y-4">
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Stage 01</span>
+                              <h2 className="text-3xl font-extrabold text-white tracking-tight">全球關稅牆</h2>
+                            </div>
+                            <p className="text-slate-400 text-sm leading-relaxed">
+                              針對美方 2025 年宣布之「Liberation Day」對等關稅，我們透過 AI 即時監控全球貿易版圖的劇烈重構。
+                            </p>
+                            <button 
+                              onClick={refreshGlobal}
+                              disabled={isLoading}
+                              className="group flex items-center gap-3 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl text-sm font-bold transition-all disabled:opacity-50 shadow-xl shadow-blue-500/20 active:scale-95"
+                            >
+                              <Icons.Trend className={cn("w-4 h-4 transition-transform group-hover:translate-x-1", isLoading && "animate-spin")} />
+                              一鍵獲得最新情報
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className={cn(
+                          "glass-card p-6 flex flex-col border-white/5",
+                          !isPolicyExpanded && "h-14 py-3"
+                        )}>
+                          <div 
+                            className="flex justify-between items-center cursor-pointer mb-6"
+                            onClick={() => setIsPolicyExpanded(!isPolicyExpanded)}
+                          >
+                            <div className="flex items-center gap-3">
+                              <Icons.Shield className="w-4 h-4 text-blue-400" />
+                              <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider">美國官方最新政策</h3>
+                            </div>
+                            <Icons.ChevronRight className={cn("w-4 h-4 text-slate-500 transition-transform", isPolicyExpanded ? "rotate-90" : "")} />
+                          </div>
+                          
+                          {isPolicyExpanded && (
+                            <div className="flex-1 overflow-y-auto custom-scrollbar pr-4 space-y-4 max-h-[150px]">
+                              {geoUpdate ? (
+                                <>
+                                  <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                                    {geoUpdate.summary}
+                                  </div>
+                                  <div className="flex flex-wrap gap-2 pt-4 border-t border-white/5">
+                                    {geoUpdate.links.map((link: any, i: number) => (
+                                      <a key={i} href={link.uri} target="_blank" rel="noreferrer" className="text-[10px] bg-slate-800/80 px-3 py-1.5 rounded-lg text-blue-400 border border-white/5 hover:border-blue-500/50 transition-all">
+                                        Source: {link.title}
+                                      </a>
+                                    ))}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="h-40 flex flex-col items-center justify-center text-slate-600">
+                                  <Icons.Dashboard className="w-8 h-8 mb-2 opacity-20" />
+                                  <p className="text-xs">等待數據同步...</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="w-full lg:w-[480px] glass-card p-0 border-white/5 flex flex-col h-[850px] shadow-3xl">
+                        <div className="p-8 border-b border-white/5 bg-slate-900/20">
+                          <h2 className="text-2xl font-bold text-white tracking-tight">談判演進歷程</h2>
+                          <p className="text-[10px] text-blue-500 mt-2 uppercase font-bold tracking-[0.2em] opacity-80">Taiwan-US Trade Timeline</p>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-10 relative">
+                          <div className="absolute left-10 top-0 bottom-0 w-px bg-white/5" />
+                          {TAIWAN_US_TIMELINE.map((item, idx) => (
+                            <div key={idx} className="relative pl-12 group">
+                              <div 
+                                className="absolute left-[7px] top-1.5 w-2 h-2 rounded-full z-10 transition-transform group-hover:scale-150" 
+                                style={{ 
+                                  backgroundColor: item.color,
+                                  boxShadow: `0 0 12px ${item.color}80`
+                                }} 
+                              />
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase">
+                                  <span>{item.date}</span>
+                                  <span className="font-bold px-2 py-0.5 rounded bg-white/5 border border-white/5" style={{ color: item.color }}>{item.status}</span>
+                                </div>
+                                <h4 className="text-base font-bold text-white tracking-tight">{item.title}</h4>
+                                <p className="text-sm text-slate-400 leading-relaxed">{item.desc}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="p-6 bg-blue-600/5 mt-auto border-t border-white/5">
+                          <h5 className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3">戰略代價核心</h5>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex gap-3 items-center group">
+                              <Icons.Shield className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                              <span className="text-xs text-slate-300">$2500 億對美半導體出口與投資</span>
+                            </div>
+                            <div className="flex gap-3 items-center group">
+                              <Icons.Zap className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                              <span className="text-xs text-slate-300">五年 $848 億戰略採購 (波音、LNG)</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeStep === AppStep.SUPPLY_CHAIN && (
+                  <div className="w-full h-full flex flex-col p-8 lg:p-10 gap-10">
+                    <div className="flex flex-col gap-6">
+                      <div className="flex justify-between items-end px-2">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">Supply Chain Shifts</span>
+                          <h2 className="text-4xl font-extrabold text-white mt-4 tracking-tight">全球供應鏈轉移</h2>
+                        </div>
+                      </div>
+                      <div className="glass-card border-none min-h-[600px] relative shadow-3xl bg-slate-900/40">
+                        <SupplyChainMap industry={industry} active={activeStep === AppStep.SUPPLY_CHAIN} data={supplyChainData?.shifts || []} />
+                      </div>
+                    </div>
+                    
+                    <div className="glass-card p-0 border-white/5 flex flex-col bg-slate-900/20">
+                      <div className="p-8 border-b border-white/5">
+                        <h2 className="text-2xl font-bold text-white tracking-tight">行政院經貿談判官方洞察</h2>
+                        <p className="text-xs text-slate-500 mt-2 uppercase font-bold tracking-widest">Government Insights & Strategic Reports</p>
+                      </div>
+
+                      <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        {TAIWAN_OFFICIAL_INFO.map((item, idx) => (
+                          <div key={idx} className="p-6 bg-slate-900/60 rounded-2xl border border-white/5 hover:border-emerald-500/20 transition-all group">
+                            <div className="text-sm font-bold text-emerald-500 uppercase tracking-widest mb-3 opacity-60 group-hover:opacity-100">{item.dimension}</div>
+                            <div className="text-xl text-slate-200 font-medium leading-relaxed">{item.content}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeStep === AppStep.LOCAL_IMPACT && (
+                  <div className="w-full h-full p-8 lg:p-10 flex flex-col gap-10">
+                    <div className="flex flex-col gap-6">
+                      <div className="flex justify-between items-end px-2">
+                        <div className="space-y-1">
+                          <h2 className="text-4xl font-extrabold text-white tracking-tight">關稅協商下美國衝擊</h2>
+                          <p className="text-slate-400 text-lg">剖析關稅減讓對各州經濟與在地產業的顯著影響。</p>
+                        </div>
+                      </div>
+                      <div className="glass-card border-none bg-slate-900/20 overflow-hidden shadow-2xl h-[600px]">
+                        <LocalImpactMap active={activeStep === AppStep.LOCAL_IMPACT} />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      <div className="glass-card p-8 border-white/5 bg-slate-900/40">
+                        <div className="flex items-center gap-3 mb-8">
+                          <div className="p-2 bg-blue-600/10 rounded-xl">
+                            <span className="text-xl">🇺🇸</span>
+                          </div>
+                          <h3 className="text-2xl font-bold text-white tracking-tight">美國市場回報與挑戰</h3>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {TARIFF_IMPACT_DATA.us.map((item, idx) => (
+                            <div key={idx} className="p-6 bg-[#020617]/40 rounded-3xl border border-white/5 group hover:border-blue-500/20 transition-all">
+                              <div className="flex items-center gap-3 mb-3">
+                                <span className="text-3xl">{item.icon}</span>
+                                <span className="text-xl font-bold text-slate-100">{item.category}</span>
+                              </div>
+                              <p className="text-lg text-slate-300 mb-3 leading-relaxed">{item.detail}</p>
+                              <p className="text-sm text-slate-500 italic font-medium">{item.note}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="glass-card p-8 border-white/5 bg-emerald-600/5">
+                        <div className="flex items-center gap-3 mb-8">
+                          <div className="p-2 bg-emerald-600/20 rounded-xl">
+                            <span className="text-xl">🇹🇼</span>
+                          </div>
+                          <h3 className="text-2xl font-bold text-white tracking-tight">台灣產業損益分析</h3>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {TARIFF_IMPACT_DATA.taiwan.map((item, idx) => (
+                            <div key={idx} className="p-6 bg-[#020617]/40 rounded-3xl border border-white/5 group hover:border-emerald-500/20 transition-all">
+                              <div className="flex items-center gap-3 mb-3">
+                                <span className="text-3xl">{item.icon}</span>
+                                <span className="text-xl font-bold text-slate-100">{item.category}</span>
+                              </div>
+                              <p className="text-lg text-slate-300 leading-relaxed mb-3">{item.detail}</p>
+                              <p className="text-sm text-slate-500 italic font-medium">{item.note}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeStep === AppStep.PREDICTIVE_INSIGHT && (
+                  <div className="w-full h-full flex flex-col items-center justify-center p-10">
+                    <div className="max-w-4xl w-full space-y-12">
+                      <div className="text-center space-y-6">
+                        <div className="inline-flex items-center gap-2 bg-blue-600/10 text-blue-400 px-5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest border border-blue-500/20">
+                          <Icons.Zap className="w-4 h-4" />
+                          Strategic Forecast Engine
+                        </div>
+                        <h2 className="text-5xl font-extrabold text-white tracking-tighter">AI 戰略預測引擎</h2>
+                        <p className="text-slate-400 text-lg max-w-2xl mx-auto leading-relaxed">
+                          整合地緣政治模型與貿易數據，模擬不同情境下的經貿風險與發展契機。
+                        </p>
+                      </div>
+
+                      <div className="glass-card p-2 border-white/10 ring-8 ring-white/5 bg-slate-900/40">
+                        <div className="flex relative">
+                          <input
+                            type="text"
+                            value={scenario}
+                            onChange={(e) => setScenario(e.target.value)}
+                            placeholder="輸入假設情境：例如「若亞利桑那州投資案延宕...」"
+                            className="w-full bg-transparent px-8 py-6 text-lg text-white font-medium focus:outline-none placeholder:text-slate-700"
+                            onKeyDown={(e) => e.key === 'Enter' && !isLoading && handlePredict()}
+                          />
+                          <button 
+                            onClick={handlePredict}
+                            disabled={isLoading || !scenario}
+                            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-10 rounded-xl font-bold transition-all shadow-xl shadow-blue-600/20 flex items-center gap-2 whitespace-nowrap active:scale-95"
+                          >
+                            {isLoading ? <Icons.Activity className="w-4 h-4 animate-spin" /> : <Icons.Zap className="w-4 h-4" />}
+                            生成戰略分析
+                          </button>
+                        </div>
+                      </div>
+
+                      <AnimatePresence>
+                        {prediction && (
+                          <motion.div 
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="glass-card p-10 border-blue-500/20 bg-blue-600/5 shadow-2xl"
+                          >
+                            <div className="flex items-center gap-3 mb-8">
+                              <div className="w-1.5 h-8 bg-blue-500 rounded-full" />
+                              <h4 className="text-xl font-bold text-white tracking-tight">AI 戰略洞察總覽</h4>
+                            </div>
+                            <div className="text-slate-300 leading-relaxed whitespace-pre-wrap text-[15px] space-y-4">
+                              {prediction}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </main>
+
+        {/* Floating Dock Navigation */}
+        <nav className="fixed bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-2 p-3 bg-slate-900/90 backdrop-blur-3xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] rounded-3xl z-[100]">
+          {Object.entries(stepInfo).map(([step, info]) => (
             <button
               key={step}
-              onClick={() => setActiveStep(step)}
-              className={`px-4 py-2 rounded-lg text-base font-medium transition-all ${
+              onClick={() => setActiveStep(step as AppStep)}
+              className={cn(
+                "group flex items-center gap-3 px-5 py-3 rounded-2xl text-sm font-bold transition-all duration-500 relative",
                 activeStep === step 
-                ? 'bg-blue-600 text-white shadow-lg' 
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-              }`}
+                  ? "bg-blue-600 text-white shadow-[0_0_20px_rgba(37,99,235,0.4)] ring-1 ring-white/20" 
+                  : "text-slate-500 hover:text-slate-200 hover:bg-white/5"
+              )}
             >
-              {stepTitles[step]}
+              {info.icon}
+              <span className="hidden md:block whitespace-nowrap">{info.title}</span>
+              {activeStep === step && (
+                <motion.div 
+                  layoutId="activeTab" 
+                  className="absolute inset-0 bg-gradient-to-tr from-white/10 to-transparent pointer-events-none rounded-2xl" 
+                />
+              )}
             </button>
           ))}
         </nav>
 
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-blue-400 transition-colors"
-            title="設定 API Key"
-          >
-            <Icons.Key className="w-5 h-5" />
-          </button>
-          <div className="hidden sm:flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></div>
-            <span className="text-[10px] text-slate-400 uppercase font-semibold">
-              {isLoading ? 'AI 情報爬蟲中' : '全系統數據同步中'}
-            </span>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 relative flex flex-col">
-        {/* Stage Context Banner */}
-        <div className="bg-blue-900/20 border-b border-blue-500/20 px-8 py-3 flex items-center justify-between z-40">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">獲取資訊方式</span>
-              <p className="text-sm text-slate-300">{STAGE_CONTEXTS[activeStep].how}</p>
-            </div>
-            <div className="w-px h-4 bg-slate-800"></div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">本階段重點</span>
-              <p className="text-sm text-slate-300">{STAGE_CONTEXTS[activeStep].focus}</p>
-            </div>
-          </div>
-          <div className="text-[10px] font-mono text-slate-500">
-            STAGE {Object.values(AppStep).indexOf(activeStep) + 1} / 4
-          </div>
-        </div>
-
-        <div className="flex-1 relative bg-[radial-gradient(circle_at_center,_#0f172a_0%,_#020617_100%)] pb-24">
-          
-          {/* Step 1: Global View + Timeline */}
-          {activeStep === AppStep.GLOBAL_VIEW && (
-            <div className="w-full flex flex-col p-8 gap-8">
-              <div className="flex flex-col lg:flex-row gap-8">
-                
-                {/* Left: Globe and AI Summary */}
-                <div className="flex-1 flex flex-col gap-6">
-                  <div className="relative h-[600px] glass-panel rounded-3xl flex items-center justify-center overflow-hidden border border-slate-800/50">
-                    <GlobeVisualization active={activeStep === AppStep.GLOBAL_VIEW} />
-                    <div className="absolute top-6 left-6 max-w-sm space-y-3">
-                      <h2 className="text-2xl font-bold text-blue-400">第一階段：全球關稅牆</h2>
-                      <p className="text-slate-400 text-xs leading-relaxed">
-                        針對美方 2025 年宣布之「Liberation Day」對等關稅，我們透過 AI 即時監控最新動態。
-                      </p>
-                      <button 
-                        onClick={refreshGlobal}
-                        disabled={isLoading}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
-                      >
-                        <Icons.Trend className="w-4 h-4" />
-                        一鍵獲得美國最新官方資訊
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className={`glass-panel rounded-3xl border border-slate-800/50 flex flex-col transition-all duration-500 ${isPolicyExpanded ? 'flex-1 p-6' : 'h-12 p-3'}`}>
-                    <h3 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4 flex justify-between items-center">
-                      <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsPolicyExpanded(!isPolicyExpanded)}>
-                        <svg className={`w-4 h-4 transition-transform ${isPolicyExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                        <span>美國官方最新政策</span>
-                      </div>
-                      {isPolicyExpanded && <span className="text-slate-600 font-mono">來源：USTR / DOC</span>}
-                    </h3>
-                    {isPolicyExpanded && (
-                      <div className="flex-1 overflow-y-auto custom-scrollbar pr-4">
-                        {geoUpdate ? (
-                          <div className="space-y-4">
-                            <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
-                              {geoUpdate.summary.split('\n').map((line: string, i: number) => {
-                                if (line.startsWith('*') || line.startsWith('-')) {
-                                  return <li key={i} className="ml-4 mb-2 text-blue-100">{line.replace(/^[*-\s]+/, '')}</li>
-                                }
-                                return <p key={i} className="mb-3">{line}</p>
-                              })}
-                            </div>
-                            <div className="flex flex-wrap gap-2 border-t border-slate-800 pt-4">
-                              {geoUpdate.links.map((link: any, i: number) => (
-                                <a key={i} href={link.uri} target="_blank" rel="noreferrer" className="text-[10px] bg-slate-900 px-3 py-1.5 rounded-lg text-blue-400 border border-slate-700 hover:border-blue-500 transition-colors">
-                                  連結：{link.title}
-                                </a>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="h-full flex flex-col items-center justify-center opacity-30 text-slate-500">
-                            <Icons.Global className="w-12 h-12 mb-2" />
-                            <p className="text-xs">請點擊上方按鈕開始 AI 數據分析</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right: Taiwan-US Negotiation Timeline */}
-                <div className="w-full lg:w-[450px] glass-panel rounded-3xl p-6 border border-slate-800/50 flex flex-col overflow-hidden">
-                  <div className="mb-6">
-                    <h2 className="text-2xl font-bold bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 bg-clip-text text-transparent">臺美關稅談判歷程</h2>
-                    <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-widest">32% → 20% → 15% 戰略演進</p>
-                  </div>
-                  
-                  <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 relative">
-                    <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-800"></div>
-                    {TAIWAN_US_TIMELINE.map((item, idx) => (
-                      <div key={idx} className="relative pl-10 mb-8 last:mb-0 group">
-                        <div className="absolute left-0 top-1 w-6 h-6 rounded-full border-4 border-slate-950 flex items-center justify-center z-10" style={{ backgroundColor: item.color }}>
-                          <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
-                        </div>
-                        <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-800 group-hover:border-slate-700 transition-colors">
-                          <div className="flex justify-between items-start mb-1">
-                            <span className="text-[10px] font-mono text-slate-500">{item.date}</span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: item.color + '20', color: item.color }}>{item.status}</span>
-                          </div>
-                          <h4 className="text-sm font-bold text-white mb-1">{item.title}</h4>
-                          <p className="text-xs text-slate-400 leading-relaxed">{item.desc}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-6 pt-4 border-t border-slate-800 bg-slate-900/30 p-4 rounded-2xl">
-                    <h5 className="text-[10px] font-bold text-blue-400 uppercase mb-2">關鍵代價：臺灣模式</h5>
-                    <ul className="text-[10px] text-slate-400 space-y-1.5 list-disc pl-4">
-                      <li>承諾 $2500 億美元對美半導體直接投資</li>
-                      <li>政府提供等額信用保證，協助建立美方生態系</li>
-                      <li>五年內採購 $848 億美元戰略物資 (LNG、波音)</li>
-                    </ul>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Supply Chain - Focused on Taiwan */}
-          {activeStep === AppStep.SUPPLY_CHAIN && (
-            <div className="w-full flex flex-col p-8">
-              <div className="flex flex-col lg:flex-row gap-8">
-                <div className="flex-1 glass-panel rounded-3xl overflow-hidden border border-slate-800/50 relative min-h-[600px]">
-                  <SupplyChainMap industry={industry} active={activeStep === AppStep.SUPPLY_CHAIN} data={supplyChainData?.shifts || []} />
-                </div>
-                
-                <div className="w-full lg:w-96 glass-panel rounded-3xl p-6 flex flex-col gap-6 border border-slate-800/50">
-                  <div>
-                    <h2 className="text-2xl font-bold text-green-400 mb-2">臺灣官方網站發布公開資訊</h2>
-                    <p className="text-xs text-slate-400 leading-relaxed italic">來源：行政院經貿談判辦公室 / 經濟部</p>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2">
-                    {TAIWAN_OFFICIAL_INFO.map((item, idx) => (
-                      <div key={idx} className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800 hover:border-green-500/30 transition-colors group">
-                        <div className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-1 opacity-70 group-hover:opacity-100">{item.dimension}</div>
-                        <div className="text-sm text-slate-200 leading-relaxed">{item.content}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Local Impact - Advanced Control */}
-          {activeStep === AppStep.LOCAL_IMPACT && (
-            <div className="w-full p-8 flex flex-col gap-8">
-              <div className="flex flex-col lg:flex-row gap-8">
-                <div className="flex-1 flex flex-col gap-4">
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <h2 className="text-3xl font-bold text-blue-400">關稅協商下美國的衝擊</h2>
-                      <p className="text-slate-400 mt-1">分析關稅協商下，美國各州與重要製造據點的微觀衝擊報告。</p>
-                    </div>
-                  </div>
-                  <div className="flex-1 glass-panel rounded-3xl border border-slate-800/50 overflow-hidden">
-                    <LocalImpactMap active={activeStep === AppStep.LOCAL_IMPACT} />
-                  </div>
-                </div>
-
-                <div className="w-full lg:w-[500px] flex flex-col gap-6">
-                  <div className="glass-panel rounded-3xl p-6 border border-slate-800/50">
-                    <h3 className="text-xl font-bold text-blue-400 mb-4 flex items-center gap-2">
-                      <span className="text-2xl">🇺🇸</span> 美國受到的影響 (US Impacts)
-                    </h3>
-                    <div className="grid grid-cols-1 gap-3">
-                      {TARIFF_IMPACT_DATA.us.map((item, idx) => (
-                        <div key={idx} className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                          <div className="flex items-center gap-3 mb-1">
-                            <span className="text-xl">{item.icon}</span>
-                            <span className="text-sm font-bold text-white">{item.category}</span>
-                          </div>
-                          <p className="text-sm text-slate-300 mb-1">{item.detail}</p>
-                          <p className="text-[10px] text-slate-500 italic">{item.note}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="glass-panel rounded-3xl p-6 border border-slate-800/50 flex-1 overflow-hidden flex flex-col">
-                    <h3 className="text-xl font-bold text-green-400 mb-4 flex items-center gap-2">
-                      <span className="text-2xl">🇹🇼</span> 臺灣受到的影響 (Taiwan Impacts)
-                    </h3>
-                    <div className="grid grid-cols-1 gap-3 overflow-y-auto custom-scrollbar pr-2">
-                      {TARIFF_IMPACT_DATA.taiwan.map((item, idx) => (
-                        <div key={idx} className={`bg-slate-900/50 p-4 rounded-2xl border ${idx === 3 ? 'border-red-500/30' : 'border-slate-800'}`}>
-                          <div className="flex items-center gap-3 mb-1">
-                            <span className="text-xl">{item.icon}</span>
-                            <span className="text-sm font-bold text-white">{item.category}</span>
-                          </div>
-                          <p className="text-sm text-slate-300 mb-1">{item.detail}</p>
-                          <p className="text-[10px] text-slate-500 italic">{item.note}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Step 4: Predictive Insight */}
-          {activeStep === AppStep.PREDICTIVE_INSIGHT && (
-            <div className="w-full p-8 flex flex-col items-center">
-              <div className="max-w-4xl w-full glass-panel rounded-3xl p-10 space-y-8 border border-slate-800/50">
-                <div className="text-center space-y-4">
-                  <div className="inline-flex items-center gap-2 bg-purple-500/10 text-purple-400 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest border border-purple-500/20">
-                    <Icons.Trend className="w-4 h-4" />
-                    AI 戰略預測引擎
-                  </div>
-                  <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                    第四階段：AI 預測與戰略建議
-                  </h2>
-                  <p className="text-slate-400 text-lg">
-                    基於「臺灣模式」與「2500 億投資」假設，利用 Gemini 3 推論未來 5 年地緣風險。
-                  </p>
-                </div>
-
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={scenario}
-                    onChange={(e) => setScenario(e.target.value)}
-                    placeholder="輸入假設情境：例如「若臺積電五座廠提前於 2026 年完工...」"
-                    className="w-full bg-slate-900/80 border-2 border-slate-800 rounded-2xl px-6 py-5 text-lg focus:outline-none focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10 transition-all pr-40"
-                    onKeyDown={(e) => e.key === 'Enter' && handlePredict()}
-                  />
-                  <button 
-                    onClick={handlePredict}
-                    disabled={isLoading || !scenario}
-                    className="absolute right-3 top-3 bottom-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-8 rounded-xl font-bold transition-all active:scale-95"
-                  >
-                    生成戰略報告
-                  </button>
-                </div>
-
-                {prediction && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-8 max-h-[400px] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in duration-500">
-                    <div className="prose prose-invert prose-blue max-w-none">
-                      <div className="flex items-center gap-2 text-blue-400 font-bold mb-4 uppercase text-xs tracking-widest">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                        臺美經貿深度預測摘要
-                      </div>
-                      <div className="text-slate-300 leading-relaxed whitespace-pre-wrap text-sm">
-                        {prediction}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {!prediction && !isLoading && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {[
-                      "若 2026 年臺灣完成 2500 億對美投資計畫",
-                      "若日韓也採取「臺灣模式」進行關稅談判",
-                      "針對亞利桑那州半導體產業鏈的群聚效應預測"
-                    ].map((s, idx) => (
-                      <button 
-                        key={idx}
-                        onClick={() => {
-                          setScenario(s);
-                          handlePredict();
-                        }}
-                        className="p-4 bg-slate-900/30 border border-slate-800 rounded-xl text-left text-xs text-slate-400 hover:bg-slate-800/50 hover:border-slate-700 transition-all"
-                      >
-                        試試: "{s}"
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="absolute bottom-8 right-8 flex flex-col gap-3 z-50">
-           {activeStep !== AppStep.PREDICTIVE_INSIGHT && (
-             <button 
-              onClick={() => {
-                const steps = Object.values(AppStep);
-                const nextIdx = (steps.indexOf(activeStep) + 1) % steps.length;
-                setActiveStep(steps[nextIdx]);
-              }}
-              className="bg-white text-slate-950 px-6 py-3 rounded-full font-bold shadow-2xl flex items-center gap-2 hover:bg-slate-200 transition-all active:scale-95 text-sm"
-             >
-                進入下一章節
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                </svg>
-             </button>
-           )}
-        </div>
-
-      </main>
-
-      <footer className="h-10 bg-slate-900/30 border-t border-slate-800 px-8 flex items-center justify-between text-[10px] text-slate-600 font-bold uppercase tracking-widest">
-        <div className="flex gap-6">
-          <span>實時情報：US DOC / USTR / 行政院經貿辦</span>
-          <span>AI 模型：Gemini 3 Pro Multi-Modal Reasoning</span>
-        </div>
-        <div>
-          &copy; 2024 TradeViz Taiwan-US Strategic Dashboard
-        </div>
-      </footer>
-
+        {/* Footer Info */}
+        <footer className="fixed bottom-0 left-0 right-0 h-8 bg-[#020617]/50 pointer-events-none flex items-center justify-between px-8 text-[9px] text-slate-700 font-bold uppercase tracking-[0.3em] z-40">
+          <span>Official Sources: DOC / USTR / EY MOTP</span>
+          <span>&copy; 2024 TradeViz Strategic Dashboard</span>
+        </footer>
       </div>
 
-      {/* API Key Modal - Outside the blurred container */}
-      {isSettingsOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="w-full max-w-md glass-panel rounded-3xl p-8 border border-slate-700 shadow-2xl animate-in zoom-in duration-300 pointer-events-auto">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-blue-600/20 p-2 rounded-lg">
-                <Icons.Key className="w-6 h-6 text-blue-400" />
-              </div>
-              <h2 className="text-xl font-bold">歡迎使用戰略圖誌</h2>
-            </div>
-            
-            <div className="space-y-4">
-              <p className="text-sm text-slate-300">
-                本系統需要 **Gemini API Key** 才能運作。請輸入您的金鑰以解鎖即時地緣政治分析功能。
-              </p>
+      {/* Pop-up: Stage Context */}
+      <AnimatePresence>
+        {showStageInfo && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 sm:p-12">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowStageInfo(false)}
+              className="absolute inset-0 bg-[#020617]/90 backdrop-blur-2xl cursor-pointer"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-full max-w-2xl glass-card p-10 border-white/10 relative shadow-4xl bg-slate-900/90"
+            >
+              <button 
+                onClick={() => setShowStageInfo(false)}
+                className="absolute top-6 right-6 p-2 rounded-full hover:bg-white/5 text-slate-500 transition-colors"
+              >
+                <Icons.Maximize className="w-5 h-5 rotate-45" />
+              </button>
               
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">API Key</label>
-                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-[10px] text-blue-400 hover:underline">獲取金鑰 →</a>
+              <div className="space-y-10">
+                <div className="flex items-center gap-5">
+                  <div className="p-4 bg-amber-500/10 rounded-2xl ring-1 ring-amber-500/20">
+                    <Icons.Help className="w-8 h-8 text-amber-500" />
+                  </div>
+                  <div>
+                    <h2 className="text-3xl font-extrabold text-white tracking-tight">{stepInfo[activeStep].title} - 操作說明</h2>
+                    <p className="text-slate-500 text-[10px] mt-1 uppercase font-bold tracking-[0.3em] leading-none">Guidance & Strategic Focus</p>
+                  </div>
                 </div>
-                <input 
-                  type="password"
-                  value={apiKeyInput}
-                  onChange={(e) => {
-                    setApiKeyInput(e.target.value);
-                    setErrorMessage('');
-                  }}
-                  placeholder="在此輸入 API Key..."
-                  className={`w-full bg-slate-900 border rounded-xl px-4 py-3 text-sm focus:outline-none transition-colors ${errorMessage ? 'border-red-500' : 'border-slate-700 focus:border-blue-500'}`}
-                />
-                {errorMessage && (
-                  <p className="text-[10px] text-red-500 font-bold">{errorMessage}</p>
-                )}
-              </div>
 
-              <div className="flex gap-3 pt-4">
-                {hasApiKey && (
-                  <button 
-                    onClick={() => setIsSettingsOpen(false)}
-                    className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-400 hover:bg-slate-800 transition-colors"
-                  >
-                    取消
-                  </button>
-                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-10 border-t border-white/5">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      <h4 className="text-[11px] font-bold text-blue-500 uppercase tracking-widest">獲取資訊方式</h4>
+                    </div>
+                    <p className="text-sm text-slate-300 leading-relaxed font-medium">
+                      {stepInfo[activeStep].how}
+                    </p>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <h4 className="text-[11px] font-bold text-emerald-500 uppercase tracking-widest">本章節重點</h4>
+                    </div>
+                    <p className="text-sm text-slate-300 leading-relaxed font-medium">
+                      {stepInfo[activeStep].focus}
+                    </p>
+                  </div>
+                </div>
+
                 <button 
-                  onClick={handleSaveApiKey}
-                  disabled={!apiKeyInput.trim()}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-900/20"
+                  onClick={() => setShowStageInfo(false)}
+                  className="w-full bg-white text-[#020617] py-4 rounded-2xl font-black text-sm tracking-tight hover:scale-[1.02] transition-all shadow-xl active:scale-95"
                 >
-                  {hasApiKey ? '儲存設定' : '解鎖系統'}
+                  開始探索此章節
                 </button>
               </div>
-              
-              {!hasApiKey && (
-                <p className="text-[10px] text-slate-500 text-center italic">
-                  * 金鑰將安全地儲存於您的瀏覽器本地空間 (localStorage)
-                </p>
-              )}
-            </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
+
+      {/* API Key Modal */}
+      <AnimatePresence>
+        {isSettingsOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-[#020617]/95 backdrop-blur-3xl"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md glass-card p-10 border-white/10 shadow-2xl bg-slate-900/90"
+            >
+              <div className="flex items-center gap-4 mb-8">
+                <div className="bg-blue-600 p-3 rounded-2xl shadow-xl shadow-blue-600/30">
+                  <Icons.Key className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-extrabold text-white tracking-tight">歡迎使用戰略圖誌</h2>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Secure Access Required</p>
+                </div>
+              </div>
+              
+              <div className="space-y-6">
+                <p className="text-sm text-slate-400 leading-relaxed">
+                  本系統需要 Gemini API 金鑰。請輸入您的金鑰以解鎖即時數據分析功能。
+                </p>
+                
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center px-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">API Key Signature</label>
+                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 font-bold hover:underline">獲取金鑰 →</a>
+                  </div>
+                  <div className="relative group">
+                    <input 
+                      type="password"
+                      value={apiKeyInput}
+                      onChange={(e) => {
+                        setApiKeyInput(e.target.value);
+                        setErrorMessage('');
+                      }}
+                      placeholder="在此貼上您的金鑰..."
+                      className={cn(
+                        "w-full bg-[#020617] border rounded-2xl px-6 py-4 text-sm font-medium transition-all focus:outline-none focus:ring-4 focus:ring-blue-600/10 placeholder:text-slate-800",
+                        errorMessage ? "border-red-500 focus:border-red-500" : "border-white/10 focus:border-blue-500"
+                      )}
+                    />
+                  </div>
+                  {errorMessage && (
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[10px] text-red-500 font-bold px-1 uppercase tracking-widest">
+                      {errorMessage}
+                    </motion.p>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-3 pt-6">
+                  <button 
+                    onClick={handleSaveApiKey}
+                    disabled={isLoading || !apiKeyInput.trim()}
+                    className="w-full bg-white hover:bg-slate-100 text-[#020617] py-4 rounded-2xl font-black text-sm tracking-tight transition-all shadow-xl active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
+                  >
+                    {isLoading ? <Icons.Activity className="w-4 h-4 animate-spin" /> : <Icons.Zap className="w-4 h-4" />}
+                    {hasApiKey ? '更新並儲存金鑰' : '解鎖戰略系統'}
+                  </button>
+                  {hasApiKey && (
+                    <button 
+                      onClick={() => setIsSettingsOpen(false)}
+                      className="w-full px-4 py-3 rounded-2xl text-[10px] font-bold text-slate-600 hover:text-slate-300 transition-colors uppercase tracking-widest"
+                    >
+                      暫不更改，返回系統
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </>
   );
 };
